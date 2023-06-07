@@ -305,7 +305,7 @@ options:
                       detect changes in the content of secret macro value.
                     - To update secret macro value, please update description alongside it so it passes
                       the check.
-                choices: [text, secret]
+                choices: [text, secret, vault]
                 type: str
                 required: false
                 default: text
@@ -993,7 +993,7 @@ def main():
                 macro=dict(type="str", required=True),
                 value=dict(type="str", required=True),
                 description=dict(type="str", default=""),
-                type=dict(type="str", default="text", choices=["text", "secret"])
+                type=dict(type="str", default="text", choices=["text", "secret", "vault"])
             )
         ),
         tags=dict(
@@ -1062,6 +1062,8 @@ def main():
                     macro["type"] = "0"
                 elif macro["type"] == "secret":
                     macro["type"] = "1"
+                elif macro["type"] == "vault":
+                     macro["type"] = "2"
 
     # Use proxy specified, or set to 0
     if proxy:
