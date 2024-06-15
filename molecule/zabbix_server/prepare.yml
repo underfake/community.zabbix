@@ -5,8 +5,8 @@
   pre_tasks:
     - name: "Create MySQL Container"
       docker_container:
-        name: mysql-host
-        image: mysql:8.0.32
+        name: "{{ item.name }}-db"
+        image: mysql:8.0
         state: started
         recreate: true
         networks:
@@ -20,7 +20,7 @@
 
     - name: "Create postgresql Container"
       docker_container:
-        name: postgresql-host
+        name: "{{ item.name }}-db"
         image: postgres:13
         state: started
         recreate: true
@@ -45,7 +45,7 @@
       changed_when: false
 
     - name: "Installing packages on CentOS"
-      yum:
+      ansible.builtin.yum:
         name:
           - net-tools
           - which
@@ -56,33 +56,14 @@
       when:
         - ansible_os_family == 'RedHat'
 
-    - name: "Installing packages on CentOS"
-      yum:
-        name:
-          - mysql
-        state: present
-      register: installation_dependencies
-      until: installation_dependencies is succeeded
-      when:
-        - ansible_os_family == 'RedHat'
-        - inventory_hostname in groups['mysql']
-
-    - name: Check if warn parameter can be used for shell module
-      set_fact:
-        produce_warn: false
-      when: ansible_version.full is version("2.14", "<")
-
     - name: "Apt update"
-      shell: "apt-get update && echo exit 0 > /usr/sbin/policy-rc.d"
-      args:
-        warn: "{{ produce_warn | default(omit) }}"
+      ansible.builtin.shell: "apt-get update && echo exit 0 > /usr/sbin/policy-rc.d"
       register: installation_dependencies
       until: installation_dependencies is succeeded
-      when:
-        - ansible_os_family != 'RedHat'
+      when: ansible_facts['os_family'] == 'Debian'
 
-    - name: "Installing packages on NON-CentOS"
-      apt:
+    - name: "Installing packages on Debian family"
+      ansible.builtin.apt:
         name:
           - net-tools
           - apt-utils
@@ -93,27 +74,21 @@
         state: present
       register: installation_dependencies
       until: installation_dependencies is succeeded
-      when:
-        - ansible_os_family != 'RedHat'
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: "Installing packages on Suse"
+      community.general.zypper:
+        name:
+          - iproute2
+          - sudo
+        state: present
+        update_cache: true
+      register: installation_dependencies
+      until: installation_dependencies is succeeded
+      when: ansible_facts['os_family'] == 'Suse'
 
     - name: "Configure SUDO."
-      lineinfile:
+      ansible.builtin.lineinfile:
         dest: /etc/sudoers
         line: "Defaults    !requiretty"
         state: present
-
-    - name: "Make sure the docs are installed."
-      lineinfile:
-        dest: /etc/yum.conf
-        line: "tsflags=nodocs"
-        state: absent
-      when:
-        - ansible_os_family == 'RedHat'
-
-    - name: PyMySQL
-      pip:
-        name: PyMySQL
-      register: installation_dependencies
-      until: installation_dependencies is succeeded
-      when:
-        - inventory_hostname in groups['mysql']

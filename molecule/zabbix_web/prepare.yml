@@ -5,7 +5,7 @@
   pre_tasks:
     - name: "Create MySQL Container"
       docker_container:
-        name: mysql-host
+        name: "{{ item.name }}-db"
         image: mysql:8.0
         state: started
         recreate: true
@@ -20,7 +20,7 @@
 
     - name: "Create postgresql Container"
       docker_container:
-        name: postgresql-host
+        name: "{{ item.name }}-db"
         image: postgres:13
         state: started
         recreate: true
@@ -45,7 +45,7 @@
       changed_when: false
 
     - name: "Installing packages on CentOS"
-      yum:
+      ansible.builtin.yum:
         name:
           - net-tools
           - which
@@ -56,43 +56,14 @@
       when:
         - ansible_os_family == 'RedHat'
 
-    - name: "Installing packages (CentOS7)"
-      yum:
-        name:
-          - centos-release-scl
-        state: present
-      register: installation_dependencies
-      when:
-        - ansible_os_family == 'RedHat'
-        - ansible_distribution_major_version == '7'
-
-    - name: "Installing MySQL on CentOS"
-      yum:
-        name:
-          - mysql
-        state: present
-      register: installation_dependencies
-      until: installation_dependencies is succeeded
-      when:
-        - ansible_os_family == 'RedHat'
-        - inventory_hostname in groups['mysql']
-
-    - name: Check if warn parameter can be used for shell module
-      set_fact:
-        produce_warn: false
-      when: ansible_version.full is version("2.14", "<")
-
     - name: "Apt update"
-      shell: "apt-get update && echo exit 0 > /usr/sbin/policy-rc.d"
-      args:
-        warn: "{{ produce_warn | default(omit) }}"
+      ansible.builtin.shell: "apt-get update"
       register: installation_dependencies
       until: installation_dependencies is succeeded
-      when:
-        - ansible_os_family != 'RedHat'
+      when: ansible_facts['os_family'] == 'Debian'
 
-    - name: "Installing packages on NON-CentOS"
-      apt:
+    - name: "Installing packages on Debian family"
+      ansible.builtin.apt:
         name:
           - net-tools
           - apt-utils
@@ -104,39 +75,36 @@
         state: present
       register: installation_dependencies
       until: installation_dependencies is succeeded
-      when:
-        - ansible_os_family != 'RedHat'
+      when: ansible_facts['os_family'] == 'Debian'
+
+    - name: "Installing packages on Suse"
+      community.general.zypper:
+        name:
+          - iproute2
+          - python3-pip
+          - sudo
+          - curl
+        update_cache: true
+        state: present
+      register: installation_dependencies
+      until: installation_dependencies is succeeded
+      when: ansible_facts['os_family'] == 'Suse'
 
     - name: "Configure SUDO."
-      lineinfile:
+      ansible.builtin.lineinfile:
         dest: /etc/sudoers
         line: "Defaults    !requiretty"
         state: present
 
-    - name: "Make sure the docs are installed."
-      lineinfile:
-        dest: /etc/yum.conf
-        line: "tsflags=nodocs"
-        state: absent
+    - name: Enabling PHP 8.0
+      ansible.builtin.dnf:
+        name: "@php:8.0/common"
       when:
-        - ansible_os_family == 'RedHat'
-
-    - name: PyMySQL
-      pip:
-        name: PyMySQL
-      register: installation_dependencies
-      until: installation_dependencies is succeeded
-      when:
-        - inventory_hostname in groups['mysql']
-
-    - name: Enabeling PHP 7.4
-      command: dnf module enable php:7.4 -y
-      when:
-        - ansible_os_family == 'RedHat'
+        - ansible_facts['os_family'] == 'RedHat'
         - ansible_distribution_major_version == "8"
 
     - name: Set PHP packages (Centos 8+)
-      set_fact:
+      ansible.builtin.set_fact:
         php_packages:
           - php
           - php-cli
@@ -151,37 +119,39 @@
           - php-pear
           - php-pecl-apcu
           - php-xml
-      when:
-        - ansible_distribution_major_version >= '8'
-        - ansible_os_family == "RedHat"
+      when: ansible_facts['os_family'] == 'RedHat'
 
-    - name: Set PHP Version (Ubuntu 2204)
-      set_fact:
-        __php_default_version_debian: "8.1"
+    - name: Workaround for geerlingguy.php missing ubuntu-24.04 support
       when:
-        - ansible_distribution_major_version >= '22'
-        - ansible_os_family == "Debian"
+        - ansible_facts['distribution'] == "Ubuntu"
+        - ansible_facts['distribution_major_version'] >= '24'
+      block:
+        - name: Set PHP Version
+          ansible.builtin.set_fact:
+            __php_default_version_debian: "8.3"
 
-    - name: Set PHP packages (Ubuntu 2204)
-      set_fact:
-        __php_packages:
-          - php{{ __php_default_version_debian }}-common
-          - php{{ __php_default_version_debian }}-cli
-          - php{{ __php_default_version_debian }}-dev
-          - php{{ __php_default_version_debian }}-fpm
-          - libpcre3-dev
-          - php{{ __php_default_version_debian }}-gd
-          - php{{ __php_default_version_debian }}-curl
-          - php{{ __php_default_version_debian }}-imap
-          - php-json
-          - php{{ __php_default_version_debian }}-opcache
-          - php{{ __php_default_version_debian }}-xml
-          - php{{ __php_default_version_debian }}-mbstring
-          - php{{ __php_default_version_debian }}-apcu
-          - php{{ __php_default_version_debian }}-sqlite3
-      when:
-        - ansible_distribution_major_version >= '22'
-        - ansible_os_family == "Debian"
+        - name: Set PHP packages
+          ansible.builtin.set_fact:
+            __php_packages:
+              - php{{ __php_default_version_debian }}-common
+              - php{{ __php_default_version_debian }}-cli
+              - php{{ __php_default_version_debian }}-dev
+              - php{{ __php_default_version_debian }}-fpm
+              - libpcre3-dev
+              - php{{ __php_default_version_debian }}-gd
+              - php{{ __php_default_version_debian }}-curl
+              - php{{ __php_default_version_debian }}-imap
+              - php-json
+              - php{{ __php_default_version_debian }}-opcache
+              - php{{ __php_default_version_debian }}-xml
+              - php{{ __php_default_version_debian }}-mbstring
+              - php{{ __php_default_version_debian }}-apcu
+              - php{{ __php_default_version_debian }}-sqlite3
+
+    - name: Set PHP Version (Suse)
+      ansible.builtin.set_fact:
+        __php_default_version_suse: "8"
+      when: ansible_facts['os_family'] == 'Suse'
 
   roles:
     - role: geerlingguy.apache
@@ -194,8 +164,15 @@
     - role: zabbix_server
 
   post_tasks:
+    - name: Suse | Create default php-fpm config
+      ansible.builtin.copy:
+        remote_src: true
+        src: "/etc/php{{ __php_default_version_suse }}/fpm/php-fpm.conf.default"
+        dest: "/etc/php{{ __php_default_version_suse }}/fpm/php-fpm.conf"
+      when: ansible_facts['os_family'] == 'Suse'
+
     - name: "Remove file"
-      file:
+      ansible.builtin.file:
         path: "{{ item }}"
         state: absent
       with_items:
